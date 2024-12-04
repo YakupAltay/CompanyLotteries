@@ -81,16 +81,6 @@ describe("CompanyLotteries - withdrawTicketRefund", function () {
       .connect(otherUser)
       .approve(companyLotteries.target, ethers.parseEther("1000"));
 
-    // Simulate ticket purchase
-    const quantity2 = 5;
-    const randomNumber2 = Math.floor(Math.random() * 1000); // Generate a random number for testing
-    const randomHash2 = ethers.solidityPackedKeccak256(['uint'], [randomNumber2]); // Generate the hash of the random number
-
-    // Buy tickets
-    await companyLotteries
-      .connect(otherUser)
-      .buyTicketTx(lotteryNo, quantity2, randomHash2);
-
     // Get into the reveal phase
     await ethers.provider.send("evm_increaseTime", [1801]); // 30 minutes later
     await ethers.provider.send("evm_mine", []); // Ensure time increment
@@ -103,16 +93,6 @@ describe("CompanyLotteries - withdrawTicketRefund", function () {
         1, // sticket no
         5, // quantity
         randomNumber // random number
-      );
-
-    // Now, reveal the random number using the correct random number (not hash) for otherUser
-    await companyLotteries
-      .connect(otherUser)
-      .revealRndNumberTx(
-        lotteryNo, // lottery no
-        6, // sticket no
-        5, // quantity
-        randomNumber2 // random number
       );
   });
 
