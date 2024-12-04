@@ -22,7 +22,9 @@ contract CompanyLotteries is Ownable {
         mapping(address => uint[]) userTickets;
         mapping(uint => address) ticketOwner;
         mapping(uint => bytes32) ticketHashes;
+        mapping(uint => bool) refundWithdrawn;
         bool isActive;
+        bool proceedsWithdrawn;
     }
 
     struct PurchaseTx {
@@ -54,12 +56,18 @@ contract CompanyLotteries is Ownable {
         uint sticketno,
         uint quantity
     );
-    // Add this event to the contract
-    event TicketRefunded(
+
+    event TicketRefundWithdrawn(
         uint indexed lottery_no,
         uint indexed ticket_no,
-        address indexed owner,
+        address indexed buyer,
         uint refundAmount
+    );
+
+    event ProceedsWithdrawn(
+        uint indexed lottery_no,
+        uint amount,
+        address indexed owner
     );
 
     function getNumPurchaseTxs(
@@ -256,6 +264,7 @@ contract CompanyLotteries is Ownable {
         lottery.htmlhash = htmlhash;
         lottery.url = url;
         lottery.isActive = true;
+        lottery.proceedsWithdrawn = false;
 
         emit LotteryCreated(
             currentLotteryNo,
@@ -482,38 +491,41 @@ contract CompanyLotteries is Ownable {
         emit LotteryFinalized(lottery_no, winners);
     }
 
-    function withdrawTicketRefund(uint lottery_no, uint sticket_no) public {
+    function withdrawTicketRefund(uint lottery_no, uint ticket_no) public {
         Lottery storage lottery = lotteries[lottery_no];
+
         require(lottery.unixbeg != 0, "Lottery does not exist!"); // Validate lottery exists
         require(!lottery.isActive, "Lottery must be finalized or canceled!"); // Check if the lottery is canceled
-        require(
-            lottery.ticketOwner[sticket_no] == msg.sender, // Ensure the caller is the ticket owner
-            "You are not the ticket owner!"
-        );
+        require(lottery.ticketOwner[ticket_no] == msg.sender, "Caller is not the ticket owner!"); // Ensure the caller is the ticket owner
 
-        // Check that the ticket is not a winning ticket if the lottery was finalized
-        bool isWinningTicket = false;
-        for (uint i = 0; i < lottery.winningtickets.length; i++) {
-            if (lottery.winningtickets[i] == sticket_no) {
-                isWinningTicket = true;
-                break;
-            }
-        }
-        require(
-            !isWinningTicket,
-            "Winning tickets are not eligible for refund!"
-        );
+        require(!lottery.refundWithdrawn[ticket_no], "Refund has already been withdrawn for this ticket!"); // Check if refund was already withdrawn
 
         uint refundAmount = lottery.ticketprice; // Calculate refund amount
         // Transfer tokens back to the ticket owner
-        bool transferSuccess = IERC20(lottery.paymenttoken).transfer(
-            msg.sender,
-            refundAmount
-        );
+        bool transferSuccess = IERC20(lottery.paymenttoken).transfer(msg.sender, refundAmount);
         require(transferSuccess, "Refund transfer failed!");
 
-        // lottery.ticketHashes[sticket_no] = bytes32(0);// Mark the ticket as refunded to prevent multiple refunds
-        emit TicketRefunded(lottery_no, sticket_no, msg.sender, refundAmount);
+        lottery.refundWithdrawn[ticket_no] = true; // Mark the ticket as refunded to prevent multiple refunds
+
+        emit TicketRefundWithdrawn(lottery_no, ticket_no, msg.sender, refundAmount);
+    }
+
+    function withdrawTicketProceeds(uint lottery_no) public onlyOwner {
+        Lottery storage lottery = lotteries[lottery_no];
+
+        require(lottery.unixbeg != 0, "Lottery does not exist!"); // Validate lottery exists
+        require(!lottery.isActive, "Lottery must be finalized or canceled!");
+        require(!lottery.proceedsWithdrawn, "Proceeds have already been withdrawn!"); // Ensure proceeds haven't been withdrawn yet
+
+        uint totalProceeds = lottery.numsold * lottery.ticketprice;
+
+        // Transfer proceeds to the owner
+        bool transferSuccess = IERC20(lottery.paymenttoken).transfer(owner(), totalProceeds);
+        require(transferSuccess, "Proceeds transfer failed!");
+
+        lottery.proceedsWithdrawn = true; // Mark proceeds as withdrawn
+
+        emit ProceedsWithdrawn(lottery_no, totalProceeds, owner());
     }
 
     // Helper function to check if the address is a contract
